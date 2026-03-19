@@ -6,13 +6,12 @@ import { Visualizer } from './components/Visualizer';
 import { TransportBar } from './components/TransportBar';
 import { EnergySlider } from './components/EnergySlider';
 import { MoodSelector } from './components/MoodSelector';
-import { LayerCard } from './components/LayerCard';
+import { GridCell } from './components/GridCell';
 import { AdvancedPanel } from './components/AdvancedPanel';
 import { RecordingIndicator } from './components/RecordingIndicator';
 import { SnapshotManager } from './components/SnapshotManager';
-import type { LayerName } from './types';
-
-const LAYER_NAMES: LayerName[] = ['pad', 'arpeggio', 'bass', 'rhythm', 'texture', 'lead'];
+import { GRID_CELLS, GRID_ROWS } from './audio/grid-instruments';
+import type { VisualizerMod } from './types';
 
 function App() {
   const store = useStore();
@@ -53,6 +52,13 @@ function App() {
     const engine = engineRef.current;
     if (!store.hasStarted) {
       await engine.init();
+      // Initialize all enabled grid cells
+      for (const cell of GRID_CELLS) {
+        if (store.grid[cell.id]?.enabled) {
+          engine.setGridCellEnabled(cell.id, true);
+          engine.setGridCellVolume(cell.id, store.grid[cell.id].volume);
+        }
+      }
       store.setHasStarted(true);
     }
     engine.start();
@@ -82,19 +88,28 @@ function App() {
     store.setRecording(false);
     store.setRecordingTime(0);
     if (blob.size > 0) {
-      AudioRecorder.downloadBlob(blob, `generative-session-${Date.now()}.webm`);
+      AudioRecorder.downloadBlob(blob, `petalwave-session-${Date.now()}.webm`);
     }
   }, [store]);
 
-  const handleLayerToggle = useCallback((layer: LayerName, enabled: boolean) => {
-    store.setLayerEnabled(layer, enabled);
-    engineRef.current.setLayerEnabled(layer, enabled);
+  const handleGridToggle = useCallback((id: string, enabled: boolean) => {
+    store.setGridCellEnabled(id, enabled);
+    if (store.hasStarted) {
+      engineRef.current.setGridCellEnabled(id, enabled);
+      if (enabled) {
+        engineRef.current.setGridCellVolume(id, store.grid[id]?.volume ?? 0.7);
+      }
+    }
   }, [store]);
 
-  const handleLayerVolume = useCallback((layer: LayerName, volume: number) => {
-    store.setLayerVolume(layer, volume);
-    engineRef.current.setLayerVolume(layer, volume);
+  const handleGridVolume = useCallback((id: string, volume: number) => {
+    store.setGridCellVolume(id, volume);
+    engineRef.current.setGridCellVolume(id, volume);
   }, [store]);
+
+  const handleVisualizerInteraction = useCallback((mod: VisualizerMod) => {
+    engineRef.current.setVisualizerMod(mod);
+  }, []);
 
   const handleLoadSnapshot = useCallback((snapshot: Parameters<typeof store.loadSnapshot>[0]) => {
     store.loadSnapshot(snapshot);
@@ -107,34 +122,34 @@ function App() {
   if (!store.hasStarted && !store.isPlaying) {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-space-black relative overflow-hidden">
-        {/* Background nebula effect */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-violet/10 rounded-full blur-[100px]" />
           <div className="absolute bottom-1/3 right-1/4 w-80 h-80 bg-cyan/5 rounded-full blur-[100px]" />
+          <div className="absolute top-1/2 left-1/2 w-72 h-72 bg-rose-500/5 rounded-full blur-[80px] -translate-x-1/2 -translate-y-1/2" />
         </div>
 
         <div className="relative z-10 flex flex-col items-center gap-8 animate-fade-in">
-          <h1 className="font-display text-3xl sm:text-5xl font-bold tracking-wider text-glow-cyan text-cyan">
-            GENERATIVE
+          <h1 className="font-display text-4xl sm:text-6xl font-bold tracking-wider text-glow-cyan text-cyan">
+            PETALWAVE
           </h1>
-          <h2 className="font-display text-lg sm:text-2xl font-light tracking-[0.3em] text-white/40 -mt-4">
-            MUSIC STUDIO
+          <h2 className="font-display text-sm sm:text-lg font-light tracking-[0.3em] text-white/35 -mt-4">
+            GENERATIVE MUSIC GARDEN
           </h2>
 
-          <p className="text-white/25 text-xs max-w-md text-center leading-relaxed">
-            An interactive generative music instrument. Create evolving electronic
-            soundscapes with harmonically rich, emotionally resonant audio.
+          <p className="text-white/25 text-xs max-w-md text-center leading-relaxed px-4">
+            An interactive generative music instrument. Shape evolving soundscapes
+            by dragging the flower petals and toggling instruments in the grid.
           </p>
 
           <button
             onClick={handlePlay}
-            className="mt-4 px-8 py-3 rounded-full font-display text-sm tracking-widest uppercase
-              bg-cyan/10 border border-cyan/30 text-cyan
-              hover:bg-cyan/20 hover:border-cyan/50
-              transition-all duration-500 glow-cyan
+            className="mt-4 px-10 py-3.5 rounded-full font-display text-sm tracking-widest uppercase
+              bg-violet/10 border border-violet/30 text-violet
+              hover:bg-violet/20 hover:border-violet/50
+              transition-all duration-500 glow-violet
               active:scale-95"
           >
-            Begin
+            Bloom
           </button>
 
           <span className="text-[9px] text-white/15 mt-2">Best experienced with headphones</span>
@@ -150,7 +165,7 @@ function App() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] shrink-0">
         <h1 className="font-display text-xs tracking-[0.25em] text-white/30 uppercase">
-          Generative Studio
+          Petalwave
         </h1>
         <div className="flex items-center gap-3">
           <SnapshotManager
@@ -169,24 +184,25 @@ function App() {
         </div>
       </header>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-4 overflow-y-auto min-h-0">
+      {/* Main content - scrollable */}
+      <div className="flex-1 flex flex-col items-center gap-3 p-3 overflow-y-auto min-h-0">
         {/* Visualizer */}
-        <div className="w-full max-w-lg aspect-square max-h-[40vh] relative">
+        <div className="w-full max-w-md aspect-square max-h-[35vh] relative shrink-0">
           <Visualizer
             analyzer={analyzer}
             isPlaying={store.isPlaying}
             energy={store.energy}
+            onInteraction={handleVisualizerInteraction}
           />
+          <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] text-white/20 pointer-events-none">
+            click &amp; drag petals to shape sound
+          </div>
         </div>
 
         {/* Primary controls */}
-        <div className="flex flex-col items-center gap-4 w-full max-w-lg">
+        <div className="flex flex-col items-center gap-3 w-full max-w-2xl">
           {/* Energy */}
-          <EnergySlider
-            value={store.energy}
-            onChange={store.setEnergy}
-          />
+          <EnergySlider value={store.energy} onChange={store.setEnergy} />
 
           {/* Complexity + Tempo row */}
           <div className="flex items-center gap-6 w-full max-w-xs">
@@ -217,18 +233,32 @@ function App() {
           {/* Mood */}
           <MoodSelector selected={store.mood} onChange={store.setMood} />
 
-          {/* Layer cards */}
-          <div className="flex flex-wrap justify-center gap-2">
-            {LAYER_NAMES.map(name => (
-              <LayerCard
-                key={name}
-                name={name}
-                enabled={store.layers[name].enabled}
-                volume={store.layers[name].volume}
-                onToggle={(enabled) => handleLayerToggle(name, enabled)}
-                onVolumeChange={(vol) => handleLayerVolume(name, vol)}
-              />
-            ))}
+          {/* 6x6 Instrument Grid */}
+          <div className="w-full">
+            <div className="text-[9px] uppercase tracking-widest text-white/25 text-center mb-2">
+              Instrument Grid
+            </div>
+            <div className="grid grid-rows-6 gap-1.5">
+              {GRID_ROWS.map((rowLabel, rowIdx) => (
+                <div key={rowLabel} className="flex items-center gap-1.5">
+                  <span className="text-[8px] uppercase tracking-wider text-white/20 w-12 text-right shrink-0">
+                    {rowLabel}
+                  </span>
+                  <div className="grid grid-cols-6 gap-1 flex-1">
+                    {GRID_CELLS.filter(c => c.row === rowIdx).map(cell => (
+                      <GridCell
+                        key={cell.id}
+                        config={cell}
+                        enabled={store.grid[cell.id]?.enabled ?? false}
+                        volume={store.grid[cell.id]?.volume ?? 0.7}
+                        onToggle={(enabled) => handleGridToggle(cell.id, enabled)}
+                        onVolumeChange={(vol) => handleGridVolume(cell.id, vol)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Advanced */}

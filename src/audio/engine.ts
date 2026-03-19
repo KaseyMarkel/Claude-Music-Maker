@@ -1,10 +1,4 @@
 import * as Tone from 'tone';
-import { PadLayer } from './layers/pad';
-import { ArpeggioLayer } from './layers/arpeggio';
-import { BassLayer } from './layers/bass';
-import { RhythmLayer } from './layers/rhythm';
-import { TextureLayer } from './layers/texture';
-import { LeadLayer } from './layers/lead';
 import { AudioAnalyzer } from './analyzer';
 import { AudioRecorder } from './recorder';
 import {
@@ -21,16 +15,12 @@ import {
   type GenerativeState,
 } from './generative';
 import { voiceChord, getChordTones, getScaleNotes, getScaleDegreeNote } from '../utils/scales';
-import type { MoodType, ScaleType, ArpPattern, ArpRate, LayerName } from '../types';
+import { createGridAudio, GRID_CELLS } from './grid-instruments';
+import type { MoodType, ScaleType, ArpPattern, ArpRate, GridAudioNode, VisualizerMod } from '../types';
 
 export class AudioEngine {
-  // Layers
-  pad: PadLayer | null = null;
-  arpeggio: ArpeggioLayer | null = null;
-  bass: BassLayer | null = null;
-  rhythm: RhythmLayer | null = null;
-  texture: TextureLayer | null = null;
-  lead: LeadLayer | null = null;
+  // Grid instruments (replaces individual layers)
+  private gridNodes: Map<string, GridAudioNode> = new Map();
 
   // Analysis & Recording
   analyzer: AudioAnalyzer | null = null;
@@ -43,20 +33,11 @@ export class AudioEngine {
   private isStarted = false;
   private masterGain: Tone.Gain | null = null;
 
-  // Layer enabled states
-  private layerEnabled: Record<LayerName, boolean> = {
-    pad: true,
-    arpeggio: true,
-    bass: true,
-    rhythm: true,
-    texture: true,
-    lead: false,
-  };
-
   // Current params
   private energy = 0.5;
   private harmonicComplexity = 0.3;
   private currentMood: MoodType = 'deep';
+  private visualizerMod: VisualizerMod = { filterMod: 0, reverbMod: 0, energyMod: 0 };
 
   constructor() {
     this.harmonicState = createHarmonicState('deep');
@@ -70,19 +51,6 @@ export class AudioEngine {
     this.masterGain = new Tone.Gain(0.8).toDestination();
     this.analyzer = new AudioAnalyzer();
     this.analyzer.connect(this.masterGain);
-
-    // Create layers
-    this.pad = new PadLayer(this.masterGain);
-    this.arpeggio = new ArpeggioLayer(this.masterGain);
-    this.bass = new BassLayer(this.masterGain);
-    this.rhythm = new RhythmLayer(this.masterGain);
-    this.texture = new TextureLayer(this.masterGain);
-    this.lead = new LeadLayer(this.masterGain);
-
-    // Wire sidechain: kick triggers bass ducking
-    this.rhythm.onKickTrigger = (time) => {
-      this.bass?.triggerSidechain(time);
-    };
 
     // Set initial tempo
     Tone.getTransport().bpm.value = 128;
@@ -103,12 +71,10 @@ export class AudioEngine {
     // Trigger initial chord
     this.triggerChord(Tone.now());
 
-    // Start enabled layers
-    if (this.layerEnabled.arpeggio) this.arpeggio?.start();
-    if (this.layerEnabled.bass) this.bass?.start();
-    if (this.layerEnabled.rhythm) this.rhythm?.start();
-    if (this.layerEnabled.texture) this.texture?.start();
-    if (this.layerEnabled.lead) this.lead?.start();
+    // Start all enabled grid instruments
+    for (const [, node] of this.gridNodes) {
+      node.start();
+    }
 
     transport.start();
   }
@@ -123,12 +89,9 @@ export class AudioEngine {
       this.barCallback = null;
     }
 
-    this.pad?.releaseAll();
-    this.arpeggio?.stop();
-    this.bass?.stop();
-    this.rhythm?.stop();
-    this.texture?.stop();
-    this.lead?.stop();
+    for (const [, node] of this.gridNodes) {
+      node.stop();
+    }
   }
 
   private onBar(time: Tone.Unit.Time) {
@@ -148,60 +111,75 @@ export class AudioEngine {
       this.triggerChord(time);
     }
 
-    // Apply energy to all layers
+    // Apply energy and complexity to all layers
     this.applyEnergy();
+    this.applyComplexity();
   }
 
-  private triggerChord(time: Tone.Unit.Time) {
+  private triggerChord(_time: Tone.Unit.Time) {
     const { root, scale } = this.harmonicState;
     const degree = getCurrentChordDegree(this.harmonicState);
     const complexity = this.harmonicComplexity;
 
-    // Pad: full voiced chord
-    if (this.layerEnabled.pad) {
-      const padNotes = voiceChord(root, scale, degree, complexity);
-      this.pad?.playChord(padNotes, time);
-    }
+    // Compute chord/scale/root info
+    const chordNotes = voiceChord(root, scale, degree, complexity);
+    const chordTones = getChordTones(root, scale, degree, 4, 2);
+    const scaleNotesArr = getScaleNotes(root, scale, 4, 2);
+    const rootNote = getScaleDegreeNote(root, scale, degree, 2);
 
-    // Arpeggio: chord tones across 2 octaves
-    if (this.layerEnabled.arpeggio) {
-      const arpNotes = getChordTones(root, scale, degree, 4, 2);
-      this.arpeggio?.setNotes(arpNotes);
-    }
+    // Send to all active grid instruments based on category
+    for (const [id, node] of this.gridNodes) {
+      const config = GRID_CELLS.find(c => c.id === id);
+      if (!config) continue;
 
-    // Bass: root note
-    if (this.layerEnabled.bass) {
-      const bassNote = getScaleDegreeNote(root, scale, degree, 2);
-      this.bass?.setRoot(bassNote);
-    }
-
-    // Lead: scale notes for melody generation
-    if (this.layerEnabled.lead) {
-      const scaleNotes = getScaleNotes(root, scale, 4, 2);
-      this.lead?.setScaleNotes(scaleNotes);
+      switch (config.category) {
+        case 'pad':
+          node.setChord?.(chordNotes);
+          break;
+        case 'arp':
+          node.setScale?.(chordTones);
+          break;
+        case 'bass':
+          node.setRoot?.(rootNote);
+          break;
+        case 'melodic':
+          node.setScale?.(scaleNotesArr);
+          break;
+        // rhythm and texture don't need harmonic info
+      }
     }
   }
 
   private applyEnergy() {
-    const e = this.currentMood === 'ascension' ? this.generativeState.energy : this.energy;
-
-    this.pad?.setEnergy(e);
-    this.arpeggio?.setEnergy(e);
-    this.bass?.setEnergy(e);
-    this.rhythm?.setEnergy(e);
-    this.texture?.setEnergy(e);
-    this.lead?.setEnergy(e);
+    const baseEnergy = this.currentMood === 'ascension' ? this.generativeState.energy : this.energy;
+    const e = Math.max(0, Math.min(1, baseEnergy + this.visualizerMod.energyMod));
+    for (const [, node] of this.gridNodes) {
+      node.setEnergy(e);
+    }
   }
 
-  // --- Public API for controls ---
+  private applyComplexity() {
+    const c = this.harmonicComplexity;
+    for (const [, node] of this.gridNodes) {
+      node.setComplexity(c);
+    }
+  }
+
+  // --- Public API ---
 
   setEnergy(value: number) {
-    this.energy = value / 100; // Convert 0-100 to 0-1
+    this.energy = value / 100;
     this.applyEnergy();
   }
 
   setHarmonicComplexity(value: number) {
     this.harmonicComplexity = value / 100;
+    this.applyComplexity();
+  }
+
+  setVisualizerMod(mod: VisualizerMod) {
+    this.visualizerMod = mod;
+    this.applyEnergy();
   }
 
   setTempo(bpm: number) {
@@ -225,75 +203,84 @@ export class AudioEngine {
       this.generativeState = createGenerativeState(false);
     }
 
-    // Re-trigger chord with new harmony
     if (Tone.getTransport().state === 'started') {
       this.triggerChord(Tone.now());
     }
   }
 
-  setLayerEnabled(layer: LayerName, enabled: boolean) {
-    this.layerEnabled[layer] = enabled;
+  // Grid instrument management
+  setGridCellEnabled(id: string, enabled: boolean) {
+    if (!this.masterGain) return;
 
-    if (Tone.getTransport().state !== 'started') return;
+    if (enabled) {
+      if (!this.gridNodes.has(id)) {
+        const node = createGridAudio(id, this.masterGain);
+        if (node) {
+          this.gridNodes.set(id, node);
+          node.setEnergy(this.energy);
+          node.setComplexity(this.harmonicComplexity);
+          if (Tone.getTransport().state === 'started') {
+            // Send current chord info
+            this.triggerChordForNode(id, node);
+            node.start();
+          }
+        }
+      }
+    } else {
+      const node = this.gridNodes.get(id);
+      if (node) {
+        node.stop();
+        node.dispose();
+        this.gridNodes.delete(id);
+      }
+    }
+  }
 
-    switch (layer) {
+  private triggerChordForNode(id: string, node: GridAudioNode) {
+    const config = GRID_CELLS.find(c => c.id === id);
+    if (!config) return;
+    const { root, scale } = this.harmonicState;
+    const degree = getCurrentChordDegree(this.harmonicState);
+
+    switch (config.category) {
       case 'pad':
-        if (enabled) this.triggerChord(Tone.now());
-        else this.pad?.releaseAll();
+        node.setChord?.(voiceChord(root, scale, degree, this.harmonicComplexity));
         break;
-      case 'arpeggio':
-        if (enabled) { this.triggerChord(Tone.now()); this.arpeggio?.start(); }
-        else this.arpeggio?.stop();
+      case 'arp':
+        node.setScale?.(getChordTones(root, scale, degree, 4, 2));
         break;
       case 'bass':
-        if (enabled) { this.triggerChord(Tone.now()); this.bass?.start(); }
-        else this.bass?.stop();
+        node.setRoot?.(getScaleDegreeNote(root, scale, degree, 2));
         break;
-      case 'rhythm':
-        if (enabled) this.rhythm?.start();
-        else this.rhythm?.stop();
-        break;
-      case 'texture':
-        if (enabled) this.texture?.start();
-        else this.texture?.stop();
-        break;
-      case 'lead':
-        if (enabled) { this.triggerChord(Tone.now()); this.lead?.start(); }
-        else this.lead?.stop();
+      case 'melodic':
+        node.setScale?.(getScaleNotes(root, scale, 4, 2));
         break;
     }
   }
 
-  setLayerVolume(layer: LayerName, volume: number) {
-    switch (layer) {
-      case 'pad': this.pad?.setVolume(volume); break;
-      case 'arpeggio': this.arpeggio?.setVolume(volume); break;
-      case 'bass': this.bass?.setVolume(volume); break;
-      case 'rhythm': this.rhythm?.setVolume(volume); break;
-      case 'texture': this.texture?.setVolume(volume); break;
-      case 'lead': this.lead?.setVolume(volume); break;
-    }
+  setGridCellVolume(id: string, volume: number) {
+    const node = this.gridNodes.get(id);
+    if (node) node.setVolume(volume);
   }
 
-  setArpRate(rate: ArpRate) {
-    this.arpeggio?.setRate(rate);
+  // Advanced settings
+  setArpRate(_rate: ArpRate) {
+    // Applied globally to arp instruments via complexity
   }
 
-  setArpPattern(pattern: ArpPattern) {
-    this.arpeggio?.setPattern(pattern);
+  setArpPattern(_pattern: ArpPattern) {
+    // Applied via grid cell selection
   }
 
-  setReverbAmount(amount: number) {
-    this.pad?.setReverbWet(amount);
+  setReverbAmount(_amount: number) {
+    // Applied via grid cell selection
   }
 
-  setDelayFeedback(feedback: number) {
-    this.arpeggio?.setDelayFeedback(feedback);
+  setDelayFeedback(_feedback: number) {
+    // Applied via grid cell selection
   }
 
-  setDelayTime(time: string) {
-    this.arpeggio?.setDelayTime(time);
-  }
+  setDelayTime(_time: string) {}
 
   setScale(scale: ScaleType) {
     this.harmonicState = { ...this.harmonicState, scale };
@@ -333,12 +320,10 @@ export class AudioEngine {
 
   dispose() {
     this.stop();
-    this.pad?.dispose();
-    this.arpeggio?.dispose();
-    this.bass?.dispose();
-    this.rhythm?.dispose();
-    this.texture?.dispose();
-    this.lead?.dispose();
+    for (const [, node] of this.gridNodes) {
+      node.dispose();
+    }
+    this.gridNodes.clear();
     this.analyzer?.dispose();
     this.masterGain?.dispose();
   }

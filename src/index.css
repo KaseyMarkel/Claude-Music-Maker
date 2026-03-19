@@ -122,3 +122,42 @@ input[type="range"]::-moz-range-thumb {
 .animate-recording-pulse {
   animation: recording-pulse 1.5s ease-in-out infinite;
 }
+
+/* Grid cells */
+.grid-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 4px 2px;
+}
+.grid-cell-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.grid-cell-slider::-webkit-slider-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.grid-cell-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  margin-top: -2.5px;
+}
+.grid-cell-slider::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.grid-cell-slider::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  border: none;
+}

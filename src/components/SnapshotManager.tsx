@@ -16,7 +16,7 @@ export function SnapshotManager({ onSave, onLoad }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `generative-session-${Date.now()}.json`;
+    a.download = `petalwave-session-${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

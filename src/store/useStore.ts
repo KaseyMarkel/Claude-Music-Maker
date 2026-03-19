@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { AppState, LayerName, MoodType, Snapshot, AdvancedSettings } from '../types';
+import type { AppState, MoodType, Snapshot, AdvancedSettings } from '../types';
+import { getDefaultGridState } from '../audio/grid-instruments';
 
 export const useStore = create<AppState>((set, get) => ({
   // Transport
@@ -13,15 +14,8 @@ export const useStore = create<AppState>((set, get) => ({
   tempo: 128,
   mood: 'deep' as MoodType,
 
-  // Layers
-  layers: {
-    pad: { enabled: true, volume: 0.8 },
-    arpeggio: { enabled: true, volume: 0.7 },
-    bass: { enabled: true, volume: 0.75 },
-    rhythm: { enabled: true, volume: 0.7 },
-    texture: { enabled: true, volume: 0.5 },
-    lead: { enabled: false, volume: 0.5 },
-  },
+  // Grid
+  grid: getDefaultGridState(),
 
   // Advanced
   advanced: {
@@ -47,18 +41,18 @@ export const useStore = create<AppState>((set, get) => ({
   setHarmonicComplexity: (complexity) => set({ harmonicComplexity: complexity }),
   setTempo: (tempo) => set({ tempo }),
   setMood: (mood) => set({ mood }),
-  setLayerEnabled: (layer: LayerName, enabled: boolean) =>
+  setGridCellEnabled: (id: string, enabled: boolean) =>
     set((state) => ({
-      layers: {
-        ...state.layers,
-        [layer]: { ...state.layers[layer], enabled },
+      grid: {
+        ...state.grid,
+        [id]: { ...state.grid[id], enabled },
       },
     })),
-  setLayerVolume: (layer: LayerName, volume: number) =>
+  setGridCellVolume: (id: string, volume: number) =>
     set((state) => ({
-      layers: {
-        ...state.layers,
-        [layer]: { ...state.layers[layer], volume },
+      grid: {
+        ...state.grid,
+        [id]: { ...state.grid[id], volume },
       },
     })),
   setAdvanced: (settings: Partial<AdvancedSettings>) =>
@@ -75,7 +69,7 @@ export const useStore = create<AppState>((set, get) => ({
       harmonicComplexity: state.harmonicComplexity,
       tempo: state.tempo,
       mood: state.mood,
-      layers: JSON.parse(JSON.stringify(state.layers)),
+      grid: JSON.parse(JSON.stringify(state.grid)),
       advanced: { ...state.advanced },
       timestamp: Date.now(),
     };
@@ -87,7 +81,7 @@ export const useStore = create<AppState>((set, get) => ({
       harmonicComplexity: snapshot.harmonicComplexity,
       tempo: snapshot.tempo,
       mood: snapshot.mood,
-      layers: snapshot.layers,
+      grid: snapshot.grid,
       advanced: snapshot.advanced,
     });
   },

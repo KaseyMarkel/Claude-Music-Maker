@@ -8,6 +8,35 @@ export type ArpRate = '8n' | '16n' | '32n' | '8t' | '16t';
 
 export type LayerName = 'pad' | 'arpeggio' | 'bass' | 'rhythm' | 'texture' | 'lead';
 
+export type GridCategory = 'pad' | 'arp' | 'bass' | 'rhythm' | 'texture' | 'melodic';
+
+export interface GridCellConfig {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  row: number;
+  col: number;
+  category: GridCategory;
+}
+
+export interface GridCellState {
+  enabled: boolean;
+  volume: number; // 0-1
+}
+
+export interface GridAudioNode {
+  start(): void;
+  stop(): void;
+  setEnergy(e: number): void;
+  setComplexity(c: number): void;
+  setVolume(v: number): void;
+  setChord?(notes: string[]): void;
+  setScale?(notes: string[]): void;
+  setRoot?(note: string): void;
+  dispose(): void;
+}
+
 export interface LayerState {
   enabled: boolean;
   volume: number; // 0-1
@@ -24,12 +53,18 @@ export interface AdvancedSettings {
   progressionMode: 'generative' | 'i-VI-III-VII' | 'i-iv-VI-V' | 'i-III-VII-IV';
 }
 
+export interface VisualizerMod {
+  filterMod: number;  // -1 to 1
+  reverbMod: number;  // 0 to 1
+  energyMod: number;  // -0.3 to 0.3
+}
+
 export interface Snapshot {
   energy: number;
   harmonicComplexity: number;
   tempo: number;
   mood: MoodType;
-  layers: Record<LayerName, LayerState>;
+  grid: Record<string, GridCellState>;
   advanced: AdvancedSettings;
   timestamp: number;
 }
@@ -46,8 +81,8 @@ export interface AppState {
   tempo: number; // 80-160
   mood: MoodType;
 
-  // Layers
-  layers: Record<LayerName, LayerState>;
+  // Grid (replaces layers)
+  grid: Record<string, GridCellState>;
 
   // Advanced
   advanced: AdvancedSettings;
@@ -64,8 +99,8 @@ export interface AppState {
   setHarmonicComplexity: (complexity: number) => void;
   setTempo: (tempo: number) => void;
   setMood: (mood: MoodType) => void;
-  setLayerEnabled: (layer: LayerName, enabled: boolean) => void;
-  setLayerVolume: (layer: LayerName, volume: number) => void;
+  setGridCellEnabled: (id: string, enabled: boolean) => void;
+  setGridCellVolume: (id: string, volume: number) => void;
   setAdvanced: (settings: Partial<AdvancedSettings>) => void;
   setShowAdvanced: (show: boolean) => void;
   setHasStarted: (started: boolean) => void;
