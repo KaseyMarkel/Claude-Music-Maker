@@ -20,20 +20,28 @@ final class WindowManager {
     /// Move the WISPR Flow pill to `position`. Returns `true` on success.
     @discardableResult
     static func movePill(to position: PillPosition) -> Bool {
-        guard let app = findWisprApp() else {
+        let apps = findWisprApps()
+        if apps.isEmpty {
             NSLog("[WisprPillMover] WISPR Flow is not running.")
             return false
         }
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        // Collect windows across ALL wispr-related processes (Electron apps
+        // typically split windows across several Helper (Renderer) processes).
+        var candidates: [AXUIElement] = []
+        for app in apps {
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            if let windows = axWindows(for: appElement) {
+                candidates.append(contentsOf: windows)
+            }
+        }
 
-        guard let windows = axWindows(for: appElement) else {
-            NSLog("[WisprPillMover] Could not enumerate WISPR windows.")
+        guard !candidates.isEmpty else {
+            NSLog("[WisprPillMover] No windows found across WISPR processes.")
             return false
         }
 
-        // The pill is the smallest window (usually ≤ 300 x 100 pt).
-        guard let (pill, pillSize) = findPillWindow(in: windows) else {
+        guard let (pill, pillSize) = findPillWindow(in: candidates) else {
             NSLog("[WisprPillMover] Could not identify the pill window.")
             return false
         }
@@ -42,46 +50,63 @@ final class WindowManager {
         return moveWindow(pill, to: target)
     }
 
-    /// Dump info about all WISPR windows for debugging.
+    /// Dump info about every window across every WISPR-related process.
     static func debugListWindows() -> [String] {
-        guard let app = findWisprApp() else { return ["WISPR Flow not running."] }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        guard let windows = axWindows(for: appElement) else { return ["No windows found."] }
+        let apps = findWisprApps()
+        if apps.isEmpty { return ["WISPR Flow not running."] }
 
         var lines: [String] = []
-        for (i, win) in windows.enumerated() {
-            let size = axSize(of: win) ?? .zero
-            let pos  = axPosition(of: win) ?? .zero
-            let title = axTitle(of: win) ?? "(no title)"
-            lines.append("Window \(i): \"\(title)\"  size=\(size)  pos=\(pos)")
+        for app in apps {
+            let name = app.localizedName ?? "(?)"
+            let pid  = app.processIdentifier
+            let bid  = app.bundleIdentifier ?? "?"
+            lines.append("── \(name) (pid \(pid), \(bid)) ──")
+
+            let appElement = AXUIElementCreateApplication(pid)
+            guard let windows = axWindows(for: appElement), !windows.isEmpty else {
+                lines.append("   (no AX windows)")
+                continue
+            }
+
+            for (i, win) in windows.enumerated() {
+                let size  = axSize(of: win) ?? .zero
+                let pos   = axPosition(of: win) ?? .zero
+                let title = axTitle(of: win) ?? "(no title)"
+                let role  = axAttr(win, kAXRoleAttribute) ?? "-"
+                let sub   = axAttr(win, kAXSubroleAttribute) ?? "-"
+                lines.append(
+                    "   W\(i): \"\(title)\"  \(Int(size.width))x\(Int(size.height))  @\(Int(pos.x)),\(Int(pos.y))  role=\(role) sub=\(sub)"
+                )
+            }
         }
         return lines
     }
 
     // MARK: - App Discovery
 
-    private static func findWisprApp() -> NSRunningApplication? {
-        let apps = NSWorkspace.shared.runningApplications
-
-        // Try bundle ID first.
-        for bid in knownBundleIDs {
-            if let app = apps.first(where: { $0.bundleIdentifier == bid }) {
-                return app
-            }
-        }
-
-        // Fallback: match by localized name or executable name.
-        for app in apps {
+    /// Return every running application whose bundle ID or name suggests
+    /// it belongs to WISPR Flow (main process + Electron helpers).
+    private static func findWisprApps() -> [NSRunningApplication] {
+        var results: [NSRunningApplication] = []
+        for app in NSWorkspace.shared.runningApplications {
             let name = app.localizedName ?? ""
+            let bid  = app.bundleIdentifier ?? ""
             let exec = app.executableURL?.lastPathComponent ?? ""
-            for sub in processNameSubstrings {
-                if name.contains(sub) || exec.contains(sub) {
-                    return app
-                }
+
+            let bundleMatch = knownBundleIDs.contains { known in
+                bid == known || bid.hasPrefix(known)
+            }
+            let nameMatch = processNameSubstrings.contains { sub in
+                name.localizedCaseInsensitiveContains(sub)
+                || exec.localizedCaseInsensitiveContains(sub)
+                || bid.localizedCaseInsensitiveContains(sub)
+            }
+
+            if bundleMatch || nameMatch {
+                results.append(app)
             }
         }
-
-        return nil
+        return results
     }
 
     // MARK: - Accessibility Helpers
@@ -125,10 +150,19 @@ final class WindowManager {
         return ref as? String
     }
 
+    /// Generic string attribute reader.
+    private static func axAttr(_ element: AXUIElement, _ attr: String) -> String? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element,
+                                            attr as CFString,
+                                            &ref) == .success else { return nil }
+        return ref as? String
+    }
+
     // MARK: - Pill Identification
 
     /// Find the pill among WISPR's windows. Heuristic: smallest window with
-    /// width ≤ 400 and height ≤ 120.
+    /// width ≤ 600 and height ≤ 200 (generous to catch various pill states).
     private static func findPillWindow(in windows: [AXUIElement]) -> (AXUIElement, CGSize)? {
         var best: (AXUIElement, CGSize)?
         var bestArea: CGFloat = .greatestFiniteMagnitude
@@ -136,7 +170,7 @@ final class WindowManager {
         for win in windows {
             guard let size = axSize(of: win) else { continue }
             guard size.width > 0, size.height > 0 else { continue }
-            guard size.width <= 400, size.height <= 120 else { continue }
+            guard size.width <= 600, size.height <= 200 else { continue }
             let area = size.width * size.height
             if area < bestArea {
                 bestArea = area
