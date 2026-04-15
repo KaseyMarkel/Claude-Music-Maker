@@ -96,6 +96,14 @@ final class StatusBarController {
         cgDebugItem.target = self
         menu.addItem(cgDebugItem)
 
+        let smallDebugItem = NSMenuItem(
+            title: "List All Small On-Screen Windows",
+            action: #selector(debugSmallWindows(_:)),
+            keyEquivalent: "s"
+        )
+        smallDebugItem.target = self
+        menu.addItem(smallDebugItem)
+
         menu.addItem(.separator())
 
         // ---- Quit ----
@@ -146,6 +154,17 @@ final class StatusBarController {
 
         let alert = NSAlert()
         alert.messageText = "On-Screen WISPR Windows (CGWindowList)"
+        alert.informativeText = msg
+        alert.alertStyle = .informational
+        alert.runModal()
+    }
+
+    @objc private func debugSmallWindows(_ sender: NSMenuItem) {
+        let lines = WindowManager.debugAllSmallWindows()
+        let msg = lines.joined(separator: "\n")
+
+        let alert = NSAlert()
+        alert.messageText = "All Small On-Screen Windows"
         alert.informativeText = msg
         alert.alertStyle = .informational
         alert.runModal()

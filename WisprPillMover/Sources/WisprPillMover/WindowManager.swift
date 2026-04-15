@@ -151,6 +151,42 @@ final class WindowManager {
         return lines.isEmpty ? ["No WISPR windows on screen."] : lines
     }
 
+    /// List every small (pill-sized-ish) on-screen window across ALL apps,
+    /// not just WISPR. Useful if the pill is rendered by a process we
+    /// didn't recognise (e.g. a system helper).
+    static func debugAllSmallWindows() -> [String] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]] else {
+            return ["CGWindowListCopyWindowInfo failed."]
+        }
+
+        var lines: [String] = []
+        for w in windows {
+            let bounds = w[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+            let width  = bounds["Width"]  ?? 0
+            let height = bounds["Height"] ?? 0
+
+            // Focus on pill-ish shapes: short, moderate width.
+            guard width  >= 40, width  <= 700 else { continue }
+            guard height >= 20, height <= 300 else { continue }
+
+            let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
+            if owner.contains("WisprPillMover") { continue }
+            let name  = w[kCGWindowName as String] as? String ?? ""
+            let pid   = w[kCGWindowOwnerPID as String] as? Int ?? 0
+            let layer = w[kCGWindowLayer as String] as? Int ?? 0
+            let alpha = w[kCGWindowAlpha as String] as? Double ?? -1
+            let x = Int(bounds["X"] ?? 0)
+            let y = Int(bounds["Y"] ?? 0)
+
+            lines.append(
+                "\(owner) [pid \(pid) L\(layer) α\(alpha)] \"\(name)\" \(Int(width))x\(Int(height)) @\(x),\(y)"
+            )
+        }
+        return lines.isEmpty ? ["No small windows found."] : lines
+    }
+
     // MARK: - Accessibility Helpers
 
     private static func axWindows(for appElement: AXUIElement) -> [AXUIElement]? {
@@ -204,7 +240,9 @@ final class WindowManager {
     // MARK: - Pill Identification
 
     /// Find the pill among WISPR's windows. Heuristic: smallest window with
-    /// width ≤ 600 and height ≤ 200 (generous to catch various pill states).
+    /// width ≤ 700 and height ≤ 400. The range is wide because Electron
+    /// apps often use oversized transparent BrowserWindows that draw a
+    /// small pill-shaped UI inside.
     private static func findPillWindow(in windows: [AXUIElement]) -> (AXUIElement, CGSize)? {
         var best: (AXUIElement, CGSize)?
         var bestArea: CGFloat = .greatestFiniteMagnitude
@@ -212,7 +250,12 @@ final class WindowManager {
         for win in windows {
             guard let size = axSize(of: win) else { continue }
             guard size.width > 0, size.height > 0 else { continue }
-            guard size.width <= 600, size.height <= 200 else { continue }
+            // Exclude full "standard window" dashboards (Hub etc.).
+            if let sub = axAttr(win, kAXSubroleAttribute),
+               sub == kAXStandardWindowSubrole as String {
+                continue
+            }
+            guard size.width <= 700, size.height <= 400 else { continue }
             let area = size.width * size.height
             if area < bestArea {
                 bestArea = area

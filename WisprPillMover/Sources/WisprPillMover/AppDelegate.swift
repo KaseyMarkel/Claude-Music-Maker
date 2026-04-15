@@ -45,8 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Preferences.shared.enforcePosition else { return }
 
         enforceTimer = Timer.scheduledTimer(withTimeInterval: enforceInterval,
-                                            repeats: true) { [weak self] _ in
-            guard let self else { return }
+                                            repeats: true) { _ in
             WindowManager.movePill(to: Preferences.shared.position)
         }
     }
