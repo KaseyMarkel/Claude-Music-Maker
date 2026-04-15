@@ -26,8 +26,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // Apply on startup.
-        applyPosition(Preferences.shared.position)
+        // On startup, opportunistically capture WISPR's own default pill
+        // position (so we know what "bottom center" should mean). Only
+        // move the pill if we already have a baseline AND the saved
+        // position is non-default — avoids clobbering WISPR's own
+        // placement the very first time the user runs this.
+        _ = WindowManager.captureBaselineNow()
+        if Preferences.shared.baselinePillFrame != nil,
+           Preferences.shared.position != .bottomCenter {
+            applyPosition(Preferences.shared.position)
+        }
         syncEnforceTimer()
     }
 

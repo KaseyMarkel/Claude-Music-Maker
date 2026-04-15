@@ -79,6 +79,33 @@ final class StatusBarController {
 
         menu.addItem(.separator())
 
+        // ---- Baseline management ----
+        let recenter = NSMenuItem(
+            title: "Recenter Pill (Rescue)",
+            action: #selector(recenterClicked(_:)),
+            keyEquivalent: "r"
+        )
+        recenter.target = self
+        menu.addItem(recenter)
+
+        let captureBaseline = NSMenuItem(
+            title: "Capture Current Position as Default",
+            action: #selector(captureBaselineClicked(_:)),
+            keyEquivalent: "c"
+        )
+        captureBaseline.target = self
+        menu.addItem(captureBaseline)
+
+        let resetBaseline = NSMenuItem(
+            title: "Reset Baseline",
+            action: #selector(resetBaselineClicked(_:)),
+            keyEquivalent: ""
+        )
+        resetBaseline.target = self
+        menu.addItem(resetBaseline)
+
+        menu.addItem(.separator())
+
         // ---- Debug ----
         let debugItem = NSMenuItem(
             title: "List WISPR Windows (AX)",
@@ -167,6 +194,34 @@ final class StatusBarController {
         alert.messageText = "All Small On-Screen Windows"
         alert.informativeText = msg
         alert.alertStyle = .informational
+        alert.runModal()
+    }
+
+    @objc private func recenterClicked(_ sender: NSMenuItem) {
+        let ok = WindowManager.recenterPill()
+        if !ok {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't recenter pill"
+            alert.informativeText = "Make sure WISPR Flow is running and Accessibility permission is granted."
+            alert.runModal()
+        }
+    }
+
+    @objc private func captureBaselineClicked(_ sender: NSMenuItem) {
+        let ok = WindowManager.captureBaselineNow()
+        let alert = NSAlert()
+        alert.messageText = ok ? "Baseline captured" : "Couldn't capture baseline"
+        alert.informativeText = ok
+            ? "The pill's current position is now the reference for Bottom Center and the mirror anchor for the top corners."
+            : "Make sure WISPR Flow is running and the pill is visible on a screen."
+        alert.runModal()
+    }
+
+    @objc private func resetBaselineClicked(_ sender: NSMenuItem) {
+        WindowManager.clearBaseline()
+        let alert = NSAlert()
+        alert.messageText = "Baseline cleared"
+        alert.informativeText = "Restart WISPR Flow (or drag its pill to where you want 'Bottom Center' to live), then choose 'Capture Current Position as Default'."
         alert.runModal()
     }
 
