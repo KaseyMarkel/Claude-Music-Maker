@@ -269,10 +269,15 @@ final class WindowManager {
 
     /// Compute the target point in Accessibility coordinates (origin at
     /// top-left of the primary display, Y increases downward).
+    ///
+    /// WISPR Flow wraps its pill in a large (≈440×300) transparent Electron
+    /// BrowserWindow, with the visible pill drawn roughly at the window's
+    /// centre. To land the visible pill near a screen edge, we centre the
+    /// window on that edge — the window's transparent padding is allowed to
+    /// extend past the screen.
     private static func targetPoint(for position: PillPosition,
                                     pillSize: CGSize) -> CGPoint {
-        guard let screen = NSScreen.main else { return .zero }
-
+        let screen = NSScreen.main ?? NSScreen.screens.first!
         let sf = screen.frame         // NSScreen coords (origin bottom-left)
         let vf = screen.visibleFrame  // Excludes menu bar & Dock
 
@@ -284,30 +289,34 @@ final class WindowManager {
         let axVisibleLeft   = vf.origin.x
         let axVisibleRight  = vf.origin.x + vf.width
 
-        let pad = Preferences.shared.edgePadding
+        let pad   = Preferences.shared.edgePadding
+        let halfW = pillSize.width  / 2
+        let halfH = pillSize.height / 2
+
+        // Where we want the visible pill's centre to be.
+        let pillX: CGFloat
+        let pillY: CGFloat
 
         switch position {
         case .bottomCenter:
-            let x = (axVisibleLeft + axVisibleRight) / 2 - pillSize.width / 2
-            let y = axVisibleBottom - pillSize.height - pad
-            return CGPoint(x: x, y: y)
-
+            pillX = (axVisibleLeft + axVisibleRight) / 2
+            pillY = axVisibleBottom - pad
         case .topLeft:
-            return CGPoint(x: axVisibleLeft + pad,
-                           y: axVisibleTop + pad)
-
+            pillX = axVisibleLeft  + pad
+            pillY = axVisibleTop   + pad
         case .topRight:
-            return CGPoint(x: axVisibleRight - pillSize.width - pad,
-                           y: axVisibleTop + pad)
-
+            pillX = axVisibleRight - pad
+            pillY = axVisibleTop   + pad
         case .bottomLeft:
-            return CGPoint(x: axVisibleLeft + pad,
-                           y: axVisibleBottom - pillSize.height - pad)
-
+            pillX = axVisibleLeft  + pad
+            pillY = axVisibleBottom - pad
         case .bottomRight:
-            return CGPoint(x: axVisibleRight - pillSize.width - pad,
-                           y: axVisibleBottom - pillSize.height - pad)
+            pillX = axVisibleRight - pad
+            pillY = axVisibleBottom - pad
         }
+
+        // Convert desired pill-centre back to window top-left.
+        return CGPoint(x: pillX - halfW, y: pillY - halfH)
     }
 
     /// Set the AX position of a window.
