@@ -87,15 +87,23 @@ final class WindowManager {
     /// Return every running application whose bundle ID or name suggests
     /// it belongs to WISPR Flow (main process + Electron helpers).
     private static func findWisprApps() -> [NSRunningApplication] {
+        let ownPid = getpid()
         var results: [NSRunningApplication] = []
         for app in NSWorkspace.shared.runningApplications {
+            // Never match our own process.
+            if app.processIdentifier == ownPid { continue }
+            // Also skip by name just in case.
+            if (app.bundleIdentifier ?? "").contains("WisprPillMover") { continue }
+            if (app.localizedName ?? "").contains("WisprPillMover") { continue }
+
             let name = app.localizedName ?? ""
             let bid  = app.bundleIdentifier ?? ""
             let exec = app.executableURL?.lastPathComponent ?? ""
 
             let bundleMatch = knownBundleIDs.contains { known in
                 bid == known || bid.hasPrefix(known)
-            }
+            } || bid.hasPrefix("com.electron.wispr")
+
             let nameMatch = processNameSubstrings.contains { sub in
                 name.localizedCaseInsensitiveContains(sub)
                 || exec.localizedCaseInsensitiveContains(sub)
@@ -107,6 +115,40 @@ final class WindowManager {
             }
         }
         return results
+    }
+
+    /// List every on-screen window owned by WISPR, regardless of whether
+    /// it is exposed via AX. Uses the lower-level CGWindowList API which
+    /// sees every window that is actually rendered on screen.
+    static func debugOnScreenWindows() -> [String] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]] else {
+            return ["CGWindowListCopyWindowInfo failed."]
+        }
+
+        var lines: [String] = []
+        for w in windows {
+            let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
+            guard owner.localizedCaseInsensitiveContains("wispr"),
+                  !owner.contains("WisprPillMover") else { continue }
+
+            let name  = w[kCGWindowName as String] as? String ?? ""
+            let pid   = w[kCGWindowOwnerPID as String] as? Int ?? 0
+            let layer = w[kCGWindowLayer as String] as? Int ?? 0
+            let wid   = w[kCGWindowNumber as String] as? Int ?? 0
+            let alpha = w[kCGWindowAlpha as String] as? Double ?? -1
+            let bounds = w[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+            let x = Int(bounds["X"] ?? 0)
+            let y = Int(bounds["Y"] ?? 0)
+            let width = Int(bounds["Width"] ?? 0)
+            let height = Int(bounds["Height"] ?? 0)
+
+            lines.append(
+                "\(owner) [pid \(pid) wid \(wid) L\(layer) α\(alpha)] \"\(name)\" \(width)x\(height) @\(x),\(y)"
+            )
+        }
+        return lines.isEmpty ? ["No WISPR windows on screen."] : lines
     }
 
     // MARK: - Accessibility Helpers

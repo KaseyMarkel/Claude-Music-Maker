@@ -81,12 +81,20 @@ final class StatusBarController {
 
         // ---- Debug ----
         let debugItem = NSMenuItem(
-            title: "List WISPR Windows (Debug)",
+            title: "List WISPR Windows (AX)",
             action: #selector(debugWindows(_:)),
             keyEquivalent: "d"
         )
         debugItem.target = self
         menu.addItem(debugItem)
+
+        let cgDebugItem = NSMenuItem(
+            title: "List On-Screen WISPR Windows (CG)",
+            action: #selector(debugCGWindows(_:)),
+            keyEquivalent: "g"
+        )
+        cgDebugItem.target = self
+        menu.addItem(cgDebugItem)
 
         menu.addItem(.separator())
 
@@ -126,8 +134,19 @@ final class StatusBarController {
         let msg = lines.joined(separator: "\n")
 
         let alert = NSAlert()
-        alert.messageText = "WISPR Flow Windows"
+        alert.messageText = "WISPR Flow Windows (AX)"
         alert.informativeText = msg.isEmpty ? "No windows found." : msg
+        alert.alertStyle = .informational
+        alert.runModal()
+    }
+
+    @objc private func debugCGWindows(_ sender: NSMenuItem) {
+        let lines = WindowManager.debugOnScreenWindows()
+        let msg = lines.joined(separator: "\n")
+
+        let alert = NSAlert()
+        alert.messageText = "On-Screen WISPR Windows (CGWindowList)"
+        alert.informativeText = msg
         alert.alertStyle = .informational
         alert.runModal()
     }
